@@ -340,7 +340,7 @@ Dependencies: GCC/Clang with C++20. On Debian/Ubuntu:
 ```bash
 sudo apt install -y build-essential cmake git
 ```
-Submodules (GoogleTest, Eigen) must be initialized:
+Submodules (GoogleTest, Eigen, Google Benchmark) must be initialized:
 ```bash
 git submodule update --init --recursive
 ```

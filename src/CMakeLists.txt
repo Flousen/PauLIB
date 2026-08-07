@@ -17,3 +17,11 @@ target_link_libraries(paulib
     INTERFACE
         OpenMP::OpenMP_CXX
 )
+
+# MPI backend (include/mpi/MpiPauliSum.h) — header-only, only built when an
+# MPI implementation is found. Kept as a separate target so the core paulib
+# library never depends on MPI headers, same boundary discipline as paulib_gpu.
+if(MPI_FOUND)
+    add_library(paulib_mpi INTERFACE)
+    target_link_libraries(paulib_mpi INTERFACE paulib MPI::MPI_CXX)
+endif()

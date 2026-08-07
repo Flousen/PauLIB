@@ -285,4 +285,22 @@ MpiPauliSum<N, T> mpi_i_commutator(const PauliSum<N, T>& h,
     return out;
 }
 
+// H_1 . H_2 outer product, replicated-RHS strategy: `rhs` must already be
+// identical bit-for-bit on every rank (build it with the same seed on every
+// rank, or Bcast it once). Each rank runs its local shard through the
+// existing SIMD/OMP multiply kernel with no communication in the compute
+// phase; exchange_and_combine() then routes every result term to its
+// hash-owner rank and combines duplicates there — the same pattern
+// mpi_i_commutator uses for the commutator.
+template <std::size_t N, typename T>
+MpiPauliSum<N, T> mpi_multiply(const MpiPauliSum<N, T>& lhs,
+                                const PauliSum<N, T>& rhs) {
+    MpiPauliSum<N, T> out(lhs.comm());
+    out.local() = lhs.local();
+    out.local().multiply(rhs);
+    out.local().num_qubits_ = std::max(lhs.local().num_qubits(), rhs.num_qubits());
+    out.exchange_and_combine();
+    return out;
+}
+
 }  // namespace paulib

@@ -18,6 +18,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(OpenMP REQUIRED)
+find_package(MPI)
 
 # Apple Silicon (M-series) clang rejects -march=native on arm64; -mcpu=native
 # selects the same microarchitecture tuning there.
@@ -43,4 +44,14 @@ add_subdirectory(app)
 include(CTest)
 if(BUILD_TESTING)
     add_subdirectory(tests)
+endif()
+
+option(BUILD_BENCHMARKS "Build benchmarks" ON)
+if(BUILD_BENCHMARKS)
+    add_subdirectory(bench)
+endif()
+
+option(BUILD_PYTHON_BINDINGS "Build pybind11 Python bindings" OFF)
+if(BUILD_PYTHON_BINDINGS)
+    add_subdirectory(python)
 endif()

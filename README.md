@@ -1,21 +1,22 @@
-# paulib
+# PauLIB
 
-Paulib is a C++20 library for the fast procecciong of large numbers of Pauli strings.
-
-Under development.
+PauLIB is a C++20 library for high-performance processing of large numbers
+of Pauli strings, with GPU (CUDA) and MPI extensions and Python bindings.
+The benchmark suite lives in [`bench/`](bench/).
 
 ## Build & test
 
 ```bash
-git clone --recurse-submodules <repo-url>
-cd paulib
+git clone --recurse-submodules <repo-url> PauLIB
+cd PauLIB
 cmake -S . -B build
 cmake --build build -j "$(nproc)"
 ctest --test-dir build --output-on-failure -j "$(nproc)"
 ```
 
 Needs CMake 3.18+ and a C++20 compiler (GCC or Clang). A CUDA compiler on
-`PATH` is auto-detected and enables the GPU target — no extra flags.
+`PATH` is auto-detected and enables the GPU target — no extra flags. For the
+benchmark suite and Python bindings, see `CLAUDE.md`.
 
 ## Usage
 
