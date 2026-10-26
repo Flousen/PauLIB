@@ -762,6 +762,61 @@ TEST(PauliSumBasisStateExpectation, ThrowsOnInvalidCharacter) {
 }
 
 // ---------------------------------------------------------------------------
+// lookup
+// ---------------------------------------------------------------------------
+
+TEST(PauliSumLookup, ReturnsCoefficientOfMatchingTerm) {
+    PauliSum<4, double> s(std::vector<std::pair<std::string, double>>{
+        {"XXII", 1.0}, {"IZZI", -0.5}, {"IIXY", 0.25}});
+    EXPECT_DOUBLE_EQ(s.lookup("XXII"), 1.0);
+    EXPECT_DOUBLE_EQ(s.lookup("IZZI"), -0.5);
+    EXPECT_DOUBLE_EQ(s.lookup(PauliString<4>("IIXY")), 0.25);
+}
+
+TEST(PauliSumLookup, AbsentStringIsZero) {
+    PauliSum<2, double> s(std::vector<std::pair<std::string, double>>{
+        {"XX", 1.0}, {"ZI", 2.0}});
+    EXPECT_DOUBLE_EQ(s.lookup("IZ"), 0.0);
+    EXPECT_DOUBLE_EQ(s.lookup("YY"), 0.0);
+    const PauliSum<2, double> empty;
+    EXPECT_DOUBLE_EQ(empty.lookup("XX"), 0.0);
+}
+
+TEST(PauliSumLookup, UncombinedDuplicatesAreSummed) {
+    PauliSum<2, double> s(std::vector<std::pair<std::string, double>>{
+        {"XZ", 1.0}, {"IY", 4.0}, {"XZ", 2.0}});
+    EXPECT_DOUBLE_EQ(s.lookup("XZ"), 3.0);
+}
+
+TEST(PauliSumLookup, PhaseRelativeToQuery) {
+    PauliSum<1, double> s(std::vector<std::pair<std::string, double>>{
+        {"X", 1.0}, {"-X", 0.25}, {"iY", 2.0}});
+    EXPECT_DOUBLE_EQ(s.lookup("X"), 0.75);
+    EXPECT_DOUBLE_EQ(s.lookup("-X"), -0.75);
+    EXPECT_DOUBLE_EQ(s.lookup("iY"), 2.0);
+    EXPECT_DOUBLE_EQ(s.lookup("-iY"), -2.0);
+}
+
+// A term differing from the query by +-i would give an imaginary coefficient,
+// which real-valued T cannot represent; it is skipped.
+TEST(PauliSumLookup, ImaginaryRelativePhaseSkipped) {
+    PauliSum<1, double> s(std::vector<std::pair<std::string, double>>{
+        {"iZ", 3.0}, {"Z", 1.0}});
+    EXPECT_DOUBLE_EQ(s.lookup("Z"), 1.0);
+    EXPECT_DOUBLE_EQ(s.lookup("iZ"), 3.0);
+}
+
+TEST(PauliSumLookup, MultiWordStrings) {
+    std::string a(100, 'I'), b(100, 'I');
+    a[3] = 'X';  a[97] = 'Z';
+    b[97] = 'Z';
+    PauliSum<100, double> s(std::vector<std::pair<std::string, double>>{
+        {a, 1.5}, {b, -2.0}});
+    EXPECT_DOUBLE_EQ(s.lookup(a), 1.5);
+    EXPECT_DOUBLE_EQ(s.lookup(b), -2.0);
+}
+
+// ---------------------------------------------------------------------------
 // apply_CNOT / apply_S
 // ---------------------------------------------------------------------------
 

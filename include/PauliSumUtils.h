@@ -243,6 +243,34 @@ T PauliSum<N, T>::trace() const {
     return std::ldexp(result, static_cast<int>(num_qubits_));
 }
 
+// Coefficient c of ps in the sum, i.e. the c with sum = c * ps + (other
+// strings). Every term with the same (x, z) pattern contributes, so the sum
+// need not be combined first; a term's phase is taken relative to ps's phase
+// (sum {-X: 0.5} gives lookup("X") = -0.5 and lookup("-X") = 0.5). Terms that
+// differ from ps by a factor of +-i are skipped (their contribution would be
+// imaginary, incompatible with T). Returns 0 if ps does not occur.
+template <std::size_t N, typename T>
+T PauliSum<N, T>::lookup(const PauliString<N>& ps) const {
+    T result = T{};
+    for (size_t i = 0; i < get_length(); ++i) {
+        bool match = true;
+        for (size_t k = 0; k < ArraySize; ++k) {
+            if (x_data[k][i] != ps.x[k] || z_data[k][i] != ps.z[k]) { match = false; break; }
+        }
+        if (!match) continue;
+        // flags encode the exponent k of i^k; term = value * i^(k_t - k_q) * ps.
+        const uint8_t rel = static_cast<uint8_t>((flags[i] - ps.flags) & 0x03);
+        if (rel & PHASE_MASK) continue;
+        result += (rel & SIGN_MASK) ? -value[i] : value[i];
+    }
+    return result;
+}
+
+template <std::size_t N, typename T>
+T PauliSum<N, T>::lookup(const std::string& pauli_string) const {
+    return lookup(PauliString<N>(pauli_string));
+}
+
 // ---------------------------------------------------------------------------
 // Truncation & algebra primitives (shared by Pauli propagation).
 

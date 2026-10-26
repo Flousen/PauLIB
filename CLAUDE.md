@@ -165,6 +165,11 @@ drop them), `trim(max_terms)` / `trim(max_terms, keep)`, `cutoff(eps)`,
 `zero_state_expectation()`, `basis_state_expectation(bits)` (as
 `zero_state_expectation()`, but `<x|·|x>` for an arbitrary computational
 basis state `x`, given as a `'0'`/`'1'` string in qubit order).
+`lookup(ps)` / `lookup("XZI")` returns the coefficient of a given Pauli
+string in the sum (0 if absent). It sums all terms with that `(x, z)`
+pattern, so the sum does not have to be combined first. Each term's phase
+is taken relative to the query's phase (`{-X: 0.5}` gives `lookup("X") ==
+-0.5`), and terms that differ from the query by `±i` are skipped.
 
 `greedy_group()` partitions terms into mutually-commuting groups (useful for
 VQE measurement grouping); it is OMP-thread-parallel, so the exact partition

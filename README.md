@@ -1,6 +1,8 @@
-# PauLIB
+<p align="center">
+  <img src="assets/logo.png" alt="PauLIB" width="420">
+</p>
 
-PauLIB is a C++20 library for high-performance processing of large numbers
+PauLIB is a C++ library for high-performance processing of large numbers
 of Pauli strings, with GPU (CUDA) and MPI extensions and Python bindings.
 The benchmark suite lives in [`bench/`](bench/).
 

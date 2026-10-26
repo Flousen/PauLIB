@@ -211,6 +211,11 @@ void register_pauli_sum(py::module_& m) {
         // Expectation value in the |0^N> state
         .def("zero_state_expectation", &PSS::zero_state_expectation,
              "<0^N|H|0^N>: sum of coefficients of purely I/Z terms.")
+        // Coefficient lookup
+        .def("lookup", py::overload_cast<const PS&>(&PSS::lookup, py::const_), py::arg("pauli_string"),
+             "Coefficient of pauli_string in the sum (0 if absent; phase taken relative to pauli_string).")
+        .def("lookup", py::overload_cast<const std::string&>(&PSS::lookup, py::const_), py::arg("pauli_string"),
+             "Coefficient of pauli_string in the sum (0 if absent; phase taken relative to pauli_string).")
         // Trace / norm
         .def("trace", &PSS::trace,
              "Matrix trace: 2^n * sum of identity-term coefficients.")

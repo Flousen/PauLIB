@@ -63,6 +63,8 @@ struct PauliSum {
     T zero_state_expectation() const;
     T basis_state_expectation(const std::string& bits) const;
     T trace() const;
+    T lookup(const PauliString<N>& ps) const;  // coefficient of ps in the sum
+    T lookup(const std::string& pauli_string) const;
 
     // Truncation & algebra primitives; defined in PauliSumUtils.h.
     size_t term_weight(size_t i) const;      // # non-identity sites of term i
