@@ -8,12 +8,15 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstddef>
+#include <functional>
 #include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "DenseReference.h"
 #include "PauLib.h"
 
 using namespace paulib;
@@ -50,7 +53,7 @@ TEST(PauliStringTests, apply_H_XY) {
 
 TEST(PauliStringTests, apply_sqrt_X) {
     std::unordered_map<std::string, std::string> pauli_map = {
-        {"I", "I"}, {"X", "X"}, {"Y", "Z"}, {"Z", "-Y"}
+        {"I", "I"}, {"X", "X"}, {"Y", "-Z"}, {"Z", "Y"}
     };
     for (const auto& [pauli_in, pauli_out] : pauli_map) {
         SCOPED_TRACE("Testing input: " + pauli_in);
@@ -63,7 +66,7 @@ TEST(PauliStringTests, apply_sqrt_X) {
 
 TEST(PauliStringTests, apply_sqrt_Y) {
     std::unordered_map<std::string, std::string> pauli_map = {
-        {"I", "I"}, {"X", "-Z"}, {"Y", "Y"}, {"Z", "X"}
+        {"I", "I"}, {"X", "Z"}, {"Y", "Y"}, {"Z", "-X"}
     };
     for (const auto& [pauli_in, pauli_out] : pauli_map) {
         SCOPED_TRACE("Testing input: " + pauli_in);
@@ -254,11 +257,11 @@ TEST(PauliStringTests, apply_SWAP) {
 }
 
 // iSWAP = SWAP . CZ . (S (x) S); cross-checked by hand: XI --SWAP--> IX
-// --CZ--> ZX --S(0)--> ZX --S(1)--> ZY.
+// --CZ--> ZX --S(0)--> ZX --S(1)--> -ZY.
 TEST(PauliStringTests, apply_iSWAP) {
     auto a = paulib::PauliString<2>("XI");
     apply_iSWAP(a, 0, 1);
-    EXPECT_EQ(a.to_string(), "ZY");
+    EXPECT_EQ(a.to_string(), "-ZY");
 
     // Composition sanity: apply_iSWAP must equal the literal 4-gate sequence.
     for (const std::string p : {"II", "XI", "IY", "ZZ", "XY", "YZ"}) {
@@ -305,7 +308,7 @@ TEST(PauliSumApplyH_XY, SingleQubitTruthTable) {
 
 TEST(PauliSumApplySX, SingleQubitTruthTable) {
     const std::map<std::string, std::string> pauli_map = {
-        {"I", "I"}, {"X", "X"}, {"Y", "Z"}, {"Z", "-Y"}
+        {"I", "I"}, {"X", "X"}, {"Y", "-Z"}, {"Z", "Y"}
     };
     for (const auto& [in, out] : pauli_map) {
         SCOPED_TRACE("input " + in);
@@ -317,7 +320,7 @@ TEST(PauliSumApplySX, SingleQubitTruthTable) {
 
 TEST(PauliSumApplySY, SingleQubitTruthTable) {
     const std::map<std::string, std::string> pauli_map = {
-        {"I", "I"}, {"X", "-Z"}, {"Y", "Y"}, {"Z", "X"}
+        {"I", "I"}, {"X", "Z"}, {"Y", "Y"}, {"Z", "-X"}
     };
     for (const auto& [in, out] : pauli_map) {
         SCOPED_TRACE("input " + in);
@@ -513,7 +516,7 @@ TEST(PauliSumApplySWAP, TwoQubitTruthTable) {
 TEST(PauliSumApplyISWAP, MatchesFusedComposition) {
     PauliSum<2, double> s(std::vector<std::pair<std::string, double>>{{"XI", 1.0}});
     s.apply_iSWAP(0, 1);
-    EXPECT_EQ(s.get_str(), "1.000000 * ZY\n");
+    EXPECT_EQ(s.get_str(), "1.000000 * -ZY\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -586,4 +589,105 @@ TEST(PauliSumApplyCZ, CrossWordControlTarget) {
     expect[0] = 'X';
     expect[70] = 'Z';
     EXPECT_EQ(s.get_str(), "1.000000 * " + expect + "\n");
+}
+
+// ---------------------------------------------------------------------------
+// Convention: every gate maps P -> G^dagger P G (Heisenberg picture), checked
+// against matrices for all two-qubit strings with all four phases.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+using dense::C;
+using dense::Mat;
+
+Eigen::Matrix2cd m2(C a, C b, C c, C d) {
+    Eigen::Matrix2cd u;
+    u << a, b, c, d;
+    return u;
+}
+
+const Eigen::Matrix2cd kI = m2(1, 0, 0, 1), kX = m2(0, 1, 1, 0),
+                       kY = m2(0, C(0, -1), C(0, 1), 0), kZ = m2(1, 0, 0, -1);
+
+Mat on(const Eigen::Matrix2cd& g, std::size_t q) { return dense::single(g, q, 2); }
+
+// Controlled gate A C B: identity where A_c = +1, B on t where A_c = -1.
+Mat controlled(const Eigen::Matrix2cd& a, const Eigen::Matrix2cd& b, std::size_t c, std::size_t t) {
+    const Mat id = Mat::Identity(4, 4);
+    return (id + on(a, c)) / 2.0 + (id - on(a, c)) / 2.0 * on(b, t);
+}
+
+}  // namespace
+
+TEST(CliffordConvention, EveryGateIsHeisenbergConjugation) {
+    using PS = PauliString<2>;
+    const double r = 1.0 / std::sqrt(2.0);
+    const C i(0, 1);
+    struct Case { std::string name; std::function<void(PS&)> apply; Mat u; };
+    std::vector<Case> cases;
+    const std::map<char, Eigen::Matrix2cd> pauli = {{'X', kX}, {'Y', kY}, {'Z', kZ}};
+    for (std::size_t q : {0, 1}) {
+        const std::size_t o = 1 - q;
+        const std::string at = "(" + std::to_string(q) + ")";
+        cases.push_back({"H_XZ" + at, [q](PS& p) { p.apply_H_XZ(q); }, on(r * (kX + kZ), q)});
+        cases.push_back({"H_YZ" + at, [q](PS& p) { p.apply_H_YZ(q); }, on(r * (kY + kZ), q)});
+        cases.push_back({"H_XY" + at, [q](PS& p) { p.apply_H_XY(q); }, on(r * (kX + kY), q)});
+        cases.push_back({"sqrt_Z" + at, [q](PS& p) { p.apply_sqrt_Z(q); }, on(m2(1, 0, 0, i), q)});
+        cases.push_back({"sqrt_X" + at, [q](PS& p) { p.apply_sqrt_X(q); }, on(r * (kI - i * kX), q)});
+        cases.push_back({"sqrt_Y" + at, [q](PS& p) { p.apply_sqrt_Y(q); }, on(r * (kI - i * kY), q)});
+        cases.push_back({"X" + at, [q](PS& p) { p.apply_X(q); }, on(kX, q)});
+        cases.push_back({"Y" + at, [q](PS& p) { p.apply_Y(q); }, on(kY, q)});
+        cases.push_back({"Z" + at, [q](PS& p) { p.apply_Z(q); }, on(kZ, q)});
+        const std::vector<std::pair<std::string, std::function<void(PS&, std::size_t, std::size_t)>>> ctrl = {
+            {"ZX", [](PS& p, std::size_t c, std::size_t t) { p.apply_ZC_X(c, t); }},
+            {"ZY", [](PS& p, std::size_t c, std::size_t t) { p.apply_ZC_Y(c, t); }},
+            {"ZZ", [](PS& p, std::size_t c, std::size_t t) { p.apply_ZC_Z(c, t); }},
+            {"XX", [](PS& p, std::size_t c, std::size_t t) { p.apply_XC_X(c, t); }},
+            {"XY", [](PS& p, std::size_t c, std::size_t t) { p.apply_XC_Y(c, t); }},
+            {"XZ", [](PS& p, std::size_t c, std::size_t t) { p.apply_XC_Z(c, t); }},
+            {"YX", [](PS& p, std::size_t c, std::size_t t) { p.apply_YC_X(c, t); }},
+            {"YY", [](PS& p, std::size_t c, std::size_t t) { p.apply_YC_Y(c, t); }},
+            {"YZ", [](PS& p, std::size_t c, std::size_t t) { p.apply_YC_Z(c, t); }},
+        };
+        for (const auto& [ab, g] : ctrl)
+            cases.push_back({std::string(1, ab[0]) + "C_" + ab[1] + at,
+                             [g = g, q, o](PS& p) { g(p, q, o); },
+                             controlled(pauli.at(ab[0]), pauli.at(ab[1]), q, o)});
+        Mat xx = on(kX, q) * on(kX, o), yy = on(kY, q) * on(kY, o), zz = on(kZ, q) * on(kZ, o);
+        const Mat id = Mat::Identity(4, 4);
+        cases.push_back({"SWAP" + at, [q, o](PS& p) { p.apply_SWAP(q, o); }, (id + xx + yy + zz) / 2.0});
+        cases.push_back({"iSWAP" + at, [q, o](PS& p) { p.apply_iSWAP(q, o); }, (id + zz) / 2.0 + i * (xx + yy) / 2.0});
+    }
+    for (const auto& cs : cases)
+        for (const char* ph : {"", "i", "-", "-i"})
+            for (char a : std::string("IXYZ"))
+                for (char b : std::string("IXYZ")) {
+                    PS p(std::string(ph) + a + b);
+                    const Mat want = cs.u.adjoint() * dense::pauli(p, 2) * cs.u;
+                    cs.apply(p);
+                    EXPECT_LT(dense::max_abs_diff(dense::pauli(p, 2), want), 1e-12)
+                        << cs.name << " on " << ph << a << b;
+                }
+}
+
+// S, sqrt(X), sqrt(Y) are RZ, RX, RY(pi/2) up to a global phase, so the gates
+// and the rotations (U^dagger O U, as evolve) must agree.
+TEST(CliffordConvention, QuarterTurnsMatchRotations) {
+    const std::size_t n = 3;
+    const auto base = random_pauli_sum<64, double>(40, 17, n);
+    for (std::size_t q = 0; q < n; ++q) {
+        auto a = base, b = base;
+        a.apply_S(q);
+        b.apply_RZ(q, M_PI / 2);
+        EXPECT_LT(dense::max_abs_diff(dense::sum(a), dense::sum(b)), 1e-12) << "S q=" << q;
+        a = base, b = base;
+        a.apply_sqrt_X(q);
+        b.apply_RX(q, M_PI / 2);
+        EXPECT_LT(dense::max_abs_diff(dense::sum(a), dense::sum(b)), 1e-12) << "sqrt_X q=" << q;
+        a = base, b = base;
+        a.apply_sqrt_Y(q);
+        b.apply_RY(q, M_PI / 2);
+        EXPECT_LT(dense::max_abs_diff(dense::sum(a), dense::sum(b)), 1e-12) << "sqrt_Y q=" << q;
+    }
 }

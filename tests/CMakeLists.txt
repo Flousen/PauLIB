@@ -5,6 +5,17 @@ add_executable(paulib_tests
     PauliSumTests.cpp
     CliffordExtendedTests.cpp
     GSimTests.cpp
+    ComplexCoeffTests.cpp
+    CommutationTests.cpp
+    GF2Tests.cpp
+    GenerateTests.cpp
+    ReductionTests.cpp
+    PauliTableTests.cpp
+    TableauTests.cpp
+    SkeletonTests.cpp
+    AlgebraTests.cpp
+    QubitMapTests.cpp
+    LocalMapTests.cpp
 )
 
 target_link_libraries(paulib_tests

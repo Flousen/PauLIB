@@ -26,7 +26,7 @@ namespace paulib {
 template <typename T>
 struct TruncationOptions {
     std::size_t max_weight = std::numeric_limits<std::size_t>::max();
-    T coefficient_cutoff = T{0};
+    real_t<T> coefficient_cutoff = real_t<T>{0};
     std::size_t max_terms = std::numeric_limits<std::size_t>::max();
 };
 
@@ -38,7 +38,7 @@ void apply_truncation(PauliSum<N, T>& O, const TruncationOptions<T>& opts,
     O.canonicalize();
     if (opts.max_weight != std::numeric_limits<std::size_t>::max())
         O.truncate_weight(opts.max_weight);
-    if (opts.coefficient_cutoff > T{0})
+    if (opts.coefficient_cutoff > real_t<T>{0})
         O.cutoff(opts.coefficient_cutoff);
     if (opts.max_terms != std::numeric_limits<std::size_t>::max()) {
         if (keep) O.trim(opts.max_terms, *keep);

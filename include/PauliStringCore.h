@@ -52,7 +52,9 @@ struct PauliString {
                num_qubits_ == other.num_qubits_;
     }
 
-    bool inner_product(const PauliString& other) const;
+    // Symplectic inner product <P, Q> = parity of (x & z') ^ (z & x'):
+    // true (1) if the strings anticommute, false (0) if they commute.
+    bool symplectic_product(const PauliString& other) const;
     bool commute(const PauliString& other) const;
     bool anti_commute(const PauliString& other) const;
     void multiply(const PauliString& other);
@@ -123,7 +125,7 @@ struct PauliStringXZEqual {
 };
 
 template <std::size_t N>
-inline bool PauliString<N>::inner_product(const PauliString<N>& b) const {
+inline bool PauliString<N>::symplectic_product(const PauliString<N>& b) const {
     const std::size_t* __restrict__ ax = x.data();
     const std::size_t* __restrict__ az = z.data();
     const std::size_t* __restrict__ bx = b.x.data();
@@ -132,17 +134,17 @@ inline bool PauliString<N>::inner_product(const PauliString<N>& b) const {
     std::size_t total = 0;
     for (std::size_t i = 0; i < PauliString<N>::ArraySize; ++i) 
         total ^= (ax[i] & bz[i]) ^ (az[i] & bx[i]);
-    return __builtin_parityll(total) == 0;
+    return __builtin_parityll(total) != 0;
 }
 
 template <std::size_t N>
 inline bool PauliString<N>::commute(const PauliString<N>& other) const {
-    return inner_product(other);
+    return !symplectic_product(other);
 }
 
 template <std::size_t N>
 inline bool PauliString<N>::anti_commute(const PauliString<N>& other) const {
-    return !inner_product(other);
+    return symplectic_product(other);
 }
 
 
@@ -187,8 +189,8 @@ inline PauliString<N> operator*(const PauliString<N>& lhs, const PauliString<N>&
 }
 
 template <std::size_t N>
-inline bool inner_product(const PauliString<N>& a, const PauliString<N>& b) {
-    return a.inner_product(b);
+inline bool symplectic_product(const PauliString<N>& a, const PauliString<N>& b) {
+    return a.symplectic_product(b);
 }
 
 

@@ -220,14 +220,15 @@ TEST(PauliSumApplyRZ, IdentityTermUnchanged) {
     EXPECT_DOUBLE_EQ(s.value[0], 2.0);
 }
 
-// X anti-commutes with Z_c → splits into cos*X + sin*(iZ*X) = cos*X - sin*Y
+// X anti-commutes with Z_c → splits into cos*X + sin*(iZ*X) = cos*X - sin*Y,
+// with the standard gate angle: U† X U for U = RZ(theta) = exp(-i theta/2 Z)
 TEST(PauliSumApplyRZ, AntiCommutingXSplitsIntoTwo) {
     const double angle = M_PI / 3.0;
     PauliSum<1, double> s(std::vector<std::pair<std::string, double>>{{"X", 1.0}});
     s.apply_RZ(0, angle);
     ASSERT_EQ(s.get_length(), 2u);
-    EXPECT_DOUBLE_EQ(s.value[0], std::cos(angle / 2));
-    EXPECT_DOUBLE_EQ(s.value[1], std::sin(angle / 2));
+    EXPECT_DOUBLE_EQ(s.value[0], std::cos(angle));
+    EXPECT_DOUBLE_EQ(s.value[1], std::sin(angle));
 }
 
 // Resulting Paulis: RZ splits X into cos*X + sin*(iZ*X) = cos*X - sin*Y
@@ -236,8 +237,8 @@ TEST(PauliSumApplyRZ, ResultPaulis) {
     PauliSum<1, double> s(std::vector<std::pair<std::string, double>>{{"X", 1.0}});
     s.apply_RZ(0, angle);
     EXPECT_EQ(s.get_str(),
-        "0.866025 * X\n"
-        "0.500000 * -Y\n");
+        "0.500000 * X\n"
+        "0.866025 * -Y\n");
 }
 
 // Regression: apply_RZ previously indexed the scratch sum with the outer loop
@@ -250,8 +251,8 @@ TEST(PauliSumApplyRZ, MixedCommutingAndAntiCommuting) {
     s.apply_RZ(0, angle);
     EXPECT_EQ(s.get_str(),
         "2.000000 * Z\n"
-        "0.866025 * X\n"
-        "0.500000 * -Y\n");
+        "0.500000 * X\n"
+        "0.866025 * -Y\n");
 }
 
 // RX splits Z into cos*Z + sin*(iX*Z) = cos*Z + sin*Y
@@ -260,8 +261,8 @@ TEST(PauliSumApplyRX, ResultPaulis) {
     PauliSum<1, double> s(std::vector<std::pair<std::string, double>>{{"Z", 1.0}});
     s.apply_RX(0, angle);
     EXPECT_EQ(s.get_str(),
-        "0.866025 * Z\n"
-        "0.500000 * Y\n");
+        "0.500000 * Z\n"
+        "0.866025 * Y\n");
 }
 
 // RY splits Z into cos*Z + sin*(iY*Z) = cos*Z - sin*X
@@ -271,14 +272,14 @@ TEST(PauliSumApplyRY, ResultPaulis) {
     PauliSum<1, double> s(std::vector<std::pair<std::string, double>>{{"Z", 1.0}});
     s.apply_RY(0, angle);
     EXPECT_EQ(s.get_str(),
-        "0.866025 * Z\n"
-        "0.500000 * -X\n");
+        "0.500000 * Z\n"
+        "0.866025 * -X\n");
 
     PauliSum<1, double> t(std::vector<std::pair<std::string, double>>{{"X", 1.0}});
     t.apply_RY(0, angle);
     EXPECT_EQ(t.get_str(),
-        "0.500000 * Z\n"
-        "0.866025 * X\n");
+        "0.866025 * Z\n"
+        "0.500000 * X\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -878,10 +879,11 @@ TEST(PauliSumApplyCNOT, MatchesPauliStringOnRandomSum) {
     }
 }
 
-// S: X → Y, Y → -X, Z → Z, I → I (matches PauliString apply_sqrt_Z).
+// S (Heisenberg, S^dagger P S): X → -Y, Y → X, Z → Z, I → I (matches
+// PauliString apply_sqrt_Z).
 TEST(PauliSumApplyS, SingleQubitTruthTable) {
     const std::map<std::string, std::string> s_map = {
-        {"I", "I"}, {"X", "Y"}, {"Y", "-X"}, {"Z", "Z"}
+        {"I", "I"}, {"X", "-Y"}, {"Y", "X"}, {"Z", "Z"}
     };
     for (const auto& [in, out] : s_map) {
         SCOPED_TRACE("input " + in);
@@ -1023,6 +1025,38 @@ TEST(PauliSumGreedyGroup, DeterministicSmallCase) {
 TEST(PauliSumGreedyGroup, ValidPartitionOfRandomSum) {
     auto s = random_pauli_sum<64, double>(120, 23, 16);
     expect_valid_grouping(s, s.greedy_group());
+}
+
+TEST(PauliSumGreedyGroup, QubitwiseCommutation) {
+    // XX and YY commute, but not qubit-wise; XI, IX and XX do.
+    const PauliString<130> xx("XX"), yy("YY"), xi("XI"), ix("IX"), zx("ZX");
+    EXPECT_FALSE(qubitwise_commutes(xx, yy));
+    EXPECT_TRUE(qubitwise_commutes(xx, xi));
+    EXPECT_TRUE(qubitwise_commutes(xi, ix));
+    EXPECT_FALSE(qubitwise_commutes(zx, xx));
+    EXPECT_TRUE(qubitwise_commutes(zx, ix));
+    // A clash in the third word only.
+    std::string a(130, 'I'), b(130, 'I');
+    a[129] = 'X';
+    b[129] = 'Z';
+    b[0] = 'Y';
+    EXPECT_FALSE(qubitwise_commutes(PauliString<130>(a), PauliString<130>(b)));
+    b[129] = 'X';
+    EXPECT_TRUE(qubitwise_commutes(PauliString<130>(a), PauliString<130>(b)));
+}
+
+TEST(PauliSumGreedyGroup, QubitwisePartitionOfRandomSum) {
+    auto s = random_pauli_sum<64, double>(200, 29, 6);
+    const auto groups = s.greedy_group(Commutation::qubitwise);
+    expect_valid_grouping(s, groups);
+    for (const auto& g : groups)
+        for (std::size_t a = 0; a < g.size(); ++a)
+            for (std::size_t b = a + 1; b < g.size(); ++b)
+                EXPECT_TRUE(qubitwise_commutes(s.get_pauli_string(g[a]), s.get_pauli_string(g[b])));
+    EXPECT_GE(groups.size(), s.greedy_group().size() / 2);  // sanity: not degenerate
+    PauliSum<2, double> h(std::vector<std::pair<std::string, double>>{{"XX", 1.0}, {"YY", 1.0}});
+    EXPECT_EQ(h.greedy_group().size(), 1u);
+    EXPECT_EQ(h.greedy_group(Commutation::qubitwise).size(), 2u);
 }
 
 // X/Y detection must scan every word, not just the first.

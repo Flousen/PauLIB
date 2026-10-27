@@ -16,6 +16,21 @@ add_executable(pauli_collate CollateBench.cpp)
 target_link_libraries(pauli_collate PRIVATE paulib benchmark::benchmark)
 target_compile_options(pauli_collate PRIVATE)
 
+# Core operations COM / GF2 / GEN versus qubit count (O(W) scaling)
+add_executable(core_ops_bench CoreOpsBench.cpp)
+target_link_libraries(core_ops_bench PRIVATE paulib benchmark::benchmark)
+target_compile_definitions(core_ops_bench PRIVATE NDEBUG)
+
+# Kernels moved onto the skeletons (PauliSkeletons.h), before/after (D7)
+add_executable(skeleton_bench SkeletonBench.cpp)
+target_link_libraries(skeleton_bench PRIVATE paulib benchmark::benchmark)
+target_compile_definitions(skeleton_bench PRIVATE NDEBUG)
+
+# Qubit-major PauliTable vs PauliSum gates, and the CHP tableau
+add_executable(tableau_bench TableauBench.cpp)
+target_link_libraries(tableau_bench PRIVATE paulib benchmark::benchmark)
+target_compile_definitions(tableau_bench PRIVATE NDEBUG)
+
 # Thread-level parallelism scaling (outer-product speedup vs. OMP threads)
 add_executable(threading_bench ThreadingBench.cpp)
 target_link_libraries(threading_bench PRIVATE paulib)
@@ -62,3 +77,8 @@ if(MPI_FOUND)
     target_link_libraries(mpi_collate_bench PRIVATE paulib paulib_mpi)
     target_compile_definitions(mpi_collate_bench PRIVATE NDEBUG)
 endif()
+
+# Second core-operations round: evolve / collate / merge before and after (D7)
+add_executable(algebra_bench AlgebraBench.cpp)
+target_link_libraries(algebra_bench PRIVATE paulib benchmark::benchmark)
+target_compile_definitions(algebra_bench PRIVATE NDEBUG PAULIB_ROUND2 PAULIB_ROUND3)

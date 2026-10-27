@@ -5,6 +5,9 @@
 #include "PauliSumCore.h"
 #include "PauliSumUtils.h"
 
+// Clifford gates in the Heisenberg picture, P -> G^dagger P G, with the rules
+// of the PauliString gates (PauliStringClifford.h).
+
 namespace paulib {
 
 // multiply_iX/iZ/iY left-multiply term i by i·X / i·Z / i·Y at qubit c.
@@ -75,7 +78,7 @@ void PauliSum<N, T>::apply_S(size_t c) {
     for (size_t i = 0; i < n; ++i) {
         const size_t xc = (xw[i] & mask) != 0;
         const size_t zc = (zw[i] & mask) != 0;
-        fl[i] ^= static_cast<uint8_t>((xc & zc) << 1);
+        fl[i] ^= static_cast<uint8_t>((xc & (1 ^ zc)) << 1);
         zw[i] ^= (xw[i] & mask);
     }
 }
@@ -132,7 +135,7 @@ void PauliSum<N, T>::apply_sqrt_X(size_t c) {
     for (size_t i = 0; i < n; ++i) {
         const size_t xc = (xw[i] & mask) != 0;
         const size_t zc = (zw[i] & mask) != 0;
-        fl[i] ^= static_cast<uint8_t>(((1 ^ xc) & zc) << 1);
+        fl[i] ^= static_cast<uint8_t>((xc & zc) << 1);
         xw[i] ^= (-zc) & mask;
     }
 }
@@ -151,7 +154,7 @@ void PauliSum<N, T>::apply_sqrt_Y(size_t c) {
     for (size_t i = 0; i < n; ++i) {
         const size_t xc = (xw[i] & mask) != 0;
         const size_t zc = (zw[i] & mask) != 0;
-        fl[i] ^= static_cast<uint8_t>((xc & (1 ^ zc)) << 1);
+        fl[i] ^= static_cast<uint8_t>(((1 ^ xc) & zc) << 1);
         xw[i] ^= (zw[i] & mask);
         zw[i] ^= (xw[i] & mask);
         xw[i] ^= (zw[i] & mask);
@@ -488,7 +491,8 @@ void PauliSum<N, T>::apply_SWAP(size_t c, size_t t) {
     }
 }
 
-// iSWAP = SWAP . CZ . (S (x) S), a standard circuit identity.
+// iSWAP = SWAP . CZ . (S (x) S), a standard circuit identity. The three
+// factors commute, so their order does not matter in either picture.
 template <std::size_t N, typename T>
 void PauliSum<N, T>::apply_iSWAP(size_t c, size_t t) {
     apply_SWAP(c, t);

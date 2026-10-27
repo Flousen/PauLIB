@@ -1,6 +1,8 @@
 """
 Simple paulib example: VQE-style Hamiltonian manipulation.
-Run from the python/ directory: python example.py
+After `pip install .`: python python/examples/example.py
+With a plain CMake build (-DBUILD_PYTHON_BINDINGS=ON):
+    PYTHONPATH=python python python/examples/example.py
 """
 
 import math

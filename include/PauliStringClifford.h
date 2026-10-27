@@ -2,6 +2,11 @@
 
 #include "PauliStringCore.h"
 
+// Clifford gates act in the Heisenberg picture: gate G maps P -> G^dagger P G,
+// the direction of evolve() and of the rules in the thesis (Sec. 6.1.5). The
+// two directions differ only for the gates that are not self-inverse: S,
+// sqrt(X), sqrt(Y) and iSWAP.
+
 namespace paulib {
 
 template <std::size_t N>
@@ -17,6 +22,7 @@ inline void PauliString<N>::apply_H_XZ(std::size_t c) {
     x[word] ^= (z[word] & mask);
 }
 
+// sqrt(Z) = S: X -> -Y, Y -> X, Z fixed.
 template <std::size_t N>
 inline void PauliString<N>::apply_sqrt_Z(std::size_t c) {
     const std::size_t word = c / BitsPerWord;
@@ -24,7 +30,7 @@ inline void PauliString<N>::apply_sqrt_Z(std::size_t c) {
     const std::size_t xc = (x[word] & mask) != 0;
     const std::size_t zc = (z[word] & mask) != 0;
 
-    flags ^= static_cast<uint8_t>((xc & zc) << 1);
+    flags ^= static_cast<uint8_t>((xc & (1 ^ zc)) << 1);
     z[word] ^= (-xc) & mask;
 }
 
@@ -52,7 +58,7 @@ inline void PauliString<N>::apply_H_XY(std::size_t c) {
     z[word] ^= (x[word] & mask);
 }
 
-// sqrt(X): X fixed, Z -> -Y, Y -> Z.
+// sqrt(X): X fixed, Z -> Y, Y -> -Z.
 template <std::size_t N>
 inline void PauliString<N>::apply_sqrt_X(std::size_t c) {
     const std::size_t word = c / BitsPerWord;
@@ -60,11 +66,11 @@ inline void PauliString<N>::apply_sqrt_X(std::size_t c) {
     const std::size_t xc = (x[word] & mask) != 0;
     const std::size_t zc = (z[word] & mask) != 0;
 
-    flags ^= static_cast<uint8_t>(((1 ^ xc) & zc) << 1);
+    flags ^= static_cast<uint8_t>((xc & zc) << 1);
     x[word] ^= (-zc) & mask;
 }
 
-// sqrt(Y): Y fixed, X -> -Z, Z -> X.
+// sqrt(Y): Y fixed, X -> Z, Z -> -X.
 template <std::size_t N>
 inline void PauliString<N>::apply_sqrt_Y(std::size_t c) {
     const std::size_t word = c / BitsPerWord;
@@ -72,7 +78,7 @@ inline void PauliString<N>::apply_sqrt_Y(std::size_t c) {
     const std::size_t xc = (x[word] & mask) != 0;
     const std::size_t zc = (z[word] & mask) != 0;
 
-    flags ^= static_cast<uint8_t>((xc & (1 ^ zc)) << 1);
+    flags ^= static_cast<uint8_t>(((1 ^ xc) & zc) << 1);
     x[word] ^= (z[word] & mask);
     z[word] ^= (x[word] & mask);
     x[word] ^= (z[word] & mask);
@@ -290,7 +296,8 @@ inline void PauliString<N>::apply_SWAP(std::size_t c, std::size_t t) {
     z[word_t] ^= ((-zt) ^ (-zc)) & mask_t;
 }
 
-// iSWAP = SWAP . CZ . (S (x) S), a standard circuit identity.
+// iSWAP = SWAP . CZ . (S (x) S), a standard circuit identity. The three
+// factors commute, so their order does not matter in either picture.
 template <std::size_t N>
 inline void PauliString<N>::apply_iSWAP(std::size_t c, std::size_t t) {
     apply_SWAP(c, t);

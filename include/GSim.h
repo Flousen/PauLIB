@@ -84,6 +84,7 @@ std::vector<PauliString<N>> lie_closure(const std::vector<PauliString<N>>& gener
 
 template <std::size_t N, typename T = double>
 class GSim {
+    static_assert(!is_complex_v<T>, "GSim requires a real coefficient type T");
 public:
     using Vec = Eigen::Matrix<T, Eigen::Dynamic, 1>;
     using Mat = Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>;

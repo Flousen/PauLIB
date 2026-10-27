@@ -1,0 +1,33 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "paulib"
+dynamic = ["version"]
+description = "Python bindings for PauLIB, a high-performance Pauli string library"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Florian Krötz" }]
+requires-python = ">=3.9"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.18"
+cmake.build-type = "Release"
+build-dir = "build/py-{wheel_tag}"
+# Only the extension module and paulib/__init__.py (CMake component "python");
+# the C++ headers and CMake package (component "dev") stay out of the wheel.
+install.components = ["python"]
+wheel.packages = []
+
+[tool.scikit-build.cmake.define]
+BUILD_PYTHON_BINDINGS = "ON"
+BUILD_TESTING = "OFF"
+BUILD_BENCHMARKS = "OFF"
+PAULIB_BUILD_APP = "OFF"
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "CMakeLists.txt"
+regex = 'project\(paulib VERSION (?P<value>[0-9.]+)'

@@ -12,10 +12,16 @@
 #include <string>
 #include <vector>
 
+#include "PauliScalar.h"
 #include "PauliString.h"
 
 
 namespace paulib {
+
+// Which commutation relation a grouping requires: general commutation, or
+// qubit-wise commutation (same letter or I on every qubit; one product basis
+// measures the whole group).
+enum class Commutation { general, qubitwise };
 
 template <std::size_t N, typename T>
 struct PauliSum {
@@ -66,17 +72,30 @@ struct PauliSum {
     T lookup(const PauliString<N>& ps) const;  // coefficient of ps in the sum
     T lookup(const std::string& pauli_string) const;
 
+    // Further reductions; defined in PauliSumUtils.h.
+    real_t<T> l1_norm() const;               // sum_j |a_j|
+    std::vector<real_t<T>> weight_histogram() const;  // sum |a_j|^2 per weight
+    // <psi| sum |psi> for a product state given by one Bloch vector
+    // (r_x, r_y, r_z) per qubit.
+    T product_state_expectation(const std::vector<std::array<real_t<T>, 3>>& bloch) const;
+
     // Truncation & algebra primitives; defined in PauliSumUtils.h.
     size_t term_weight(size_t i) const;      // # non-identity sites of term i
-    void canonicalize();                     // fold sign flag into coeff, combine, drop zeros
+    void canonicalize();                     // fold phase into coeff (sign only for real T), combine, drop zeros
     void trim(size_t max_terms);             // keep the max_terms largest-|coeff| terms
     void trim(size_t max_terms, const PauliSum& keep);  // …but never drop keep's strings
-    void cutoff(T eps);                      // drop terms with |coeff| < eps
+    void cutoff(real_t<T> eps);              // drop terms with |coeff| < eps
     void truncate_weight(size_t max_weight); // drop terms with weight > max_weight
     void scale(T c);
-    T frobenius_norm2() const;               // tr(O†O)/2^n for a canonicalized sum
+    real_t<T> frobenius_norm2() const;       // tr(O†O)/2^n for a canonicalized sum
     void compact(const std::vector<uint8_t>& keep_mask);
     void sort_and_combine();
+    // True if the terms are in the order of sort_and_combine (duplicates allowed).
+    bool is_sorted() const;
+    // *this += c * rhs, combined: the result of append + sort_and_combine,
+    // bit for bit, but each operand is sorted on its own (not at all if it is
+    // sorted already) and the two are merged. Defined in PauliSumOperations.h.
+    void add_combine(const PauliSum& rhs, T c = T{1});
     void multiply(const PauliSum<N, T>& rhs);
 
     // Element-wise (Hadamard) product: result[i] = (*this)[i] * rhs[i].
@@ -85,12 +104,15 @@ struct PauliSum {
     void elementwise_multiply(const PauliSum<N, T>& rhs);
 
     void evolve(const PauliSum<N, T>& rotations);
+    // Imaginary-time step O -> e^{-tau P/2} O e^{-tau P/2} per generator
+    // (P_l, tau_l), the analogue of evolve() for theta = -i tau.
+    void evolve_imaginary(const PauliSum<N, T>& generators);
     inline bool commute(std::size_t i, const PauliString<N>& ps);
     inline void multiply(const size_t i, const PauliString<N>& ps);
 
     
     inline bool commute(std::size_t i, std::size_t j);
-    std::vector<std::vector<std::size_t>> greedy_group();
+    std::vector<std::vector<std::size_t>> greedy_group(Commutation rule = Commutation::general);
 
 
 
@@ -116,9 +138,9 @@ struct PauliSum {
     void apply_YC_Z(size_t c, size_t t);
     void apply_SWAP(size_t c, size_t t);
     void apply_iSWAP(size_t c, size_t t);
-    void apply_RZ(size_t c, T angle);
-    void apply_RX(size_t c, T angle);
-    void apply_RY(size_t c, T angle);
+    void apply_RZ(size_t c, real_t<T> angle);
+    void apply_RX(size_t c, real_t<T> angle);
+    void apply_RY(size_t c, real_t<T> angle);
 
     inline void set_Z(size_t i, size_t c) ;
     inline void set_X(size_t i, size_t c) ;
@@ -231,8 +253,7 @@ void append_scaled(PauliSum<N, T>& lhs, T c, const PauliSum<N, T>& rhs) {
 
 template <std::size_t N, typename T>
 PauliSum<N, T>& operator+=(PauliSum<N, T>& lhs, const PauliSum<N, T>& rhs) {
-    add(lhs, rhs);
-    lhs.sort_and_combine();
+    lhs.add_combine(rhs);
     return lhs;
 }
 
@@ -244,8 +265,7 @@ PauliSum<N, T> operator+(PauliSum<N, T> lhs, const PauliSum<N, T>& rhs) {
 
 template <std::size_t N, typename T>
 PauliSum<N, T>& operator-=(PauliSum<N, T>& lhs, const PauliSum<N, T>& rhs) {
-    append_scaled(lhs, T{-1}, rhs);
-    lhs.sort_and_combine();
+    lhs.add_combine(rhs, T{-1});
     return lhs;
 }
 

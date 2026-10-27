@@ -15,17 +15,17 @@ TEST(PauliStringTests, InitAndPrint) {
     EXPECT_EQ(x.to_string(), str);
 }
 
-TEST(PauliStringTests, InnerProduct) {
-    std::size_t num_qubits = 5;
+// Symplectic inner product: 1 (true) if the strings anticommute.
+TEST(PauliStringTests, SymplecticProduct) {
     auto a = paulib::PauliString<5>("IIYII");
     auto b = paulib::PauliString<5>("IIXII");
-    auto inner = paulib::inner_product(a, b);
-    EXPECT_EQ(inner, false);
+    EXPECT_EQ(paulib::symplectic_product(a, b), true);
+    EXPECT_EQ(a.symplectic_product(b), a.anti_commute(b));
 
     auto c = paulib::PauliString<5>("IIXIY");
     auto d = paulib::PauliString<5>("IIZIX");
-    auto inner_cd = paulib::inner_product(c, d);
-    EXPECT_EQ(inner_cd, true);
+    EXPECT_EQ(paulib::symplectic_product(c, d), false);
+    EXPECT_EQ(c.symplectic_product(d), !c.commute(d));
 }
 
 TEST(PauliStringTests, apply_H_XZ) {
@@ -47,7 +47,7 @@ TEST(PauliStringTests, apply_sqrt_Z) {
     apply_sqrt_Z(a,1);
     EXPECT_EQ(a.to_string(), "IZXY");
     apply_sqrt_Z(a,2);
-    EXPECT_EQ(a.to_string(), "IZYY");
+    EXPECT_EQ(a.to_string(), "-IZYY");
     apply_sqrt_Z(a,3);
     EXPECT_EQ(a.to_string(), "-IZYX");
 }

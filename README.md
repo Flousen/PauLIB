@@ -18,7 +18,19 @@ ctest --test-dir build --output-on-failure -j "$(nproc)"
 
 Needs CMake 3.18+ and a C++20 compiler (GCC or Clang). A CUDA compiler on
 `PATH` is auto-detected and enables the GPU target — no extra flags. For the
-benchmark suite and Python bindings, see `CLAUDE.md`.
+benchmark suite, see `CLAUDE.md`.
+
+Install as a CMake package (`find_package(paulib)` → `paulib::paulib`):
+
+```bash
+cmake --install build --prefix <prefix>
+```
+
+Python bindings:
+
+```bash
+pip install .
+```
 
 ## Usage
 

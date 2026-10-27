@@ -59,7 +59,7 @@ void register_pauli_string(py::module_& m) {
         .def(py::init<>())
         .def(py::init<const std::string&>(), py::arg("s"))
         .def("num_qubits", &PS::num_qubits)
-        .def("inner_product", [](const PS& a, const PS& b) { check_same_qubits(a, b); return a.inner_product(b); }, py::arg("other"))
+        .def("symplectic_product", [](const PS& a, const PS& b) { check_same_qubits(a, b); return a.symplectic_product(b); }, py::arg("other"))
         .def("commute",      [](const PS& a, const PS& b) { check_same_qubits(a, b); return a.commute(b); },       py::arg("other"))
         .def("anti_commute", [](const PS& a, const PS& b) { check_same_qubits(a, b); return a.anti_commute(b); },  py::arg("other"))
         .def("multiply",     [](PS& a, const PS& b) { check_same_qubits(a, b); a.multiply(b); },                   py::arg("other"))
