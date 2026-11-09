@@ -19,95 +19,48 @@
 
 namespace paulib {
 
-inline bool isCloseOne(double value, double epsilon = 1e-14) {
-    return std::abs(value - 1) <= epsilon;
-}
-
-inline bool isCloseToSqrtTwo(double value, double epsilon = 1e-14) {
-    static const double sqrt_two_inv = 1 / std::sqrt(2);
-    return std::abs(value - sqrt_two_inv) <= epsilon;
+// True if |value| <= epsilon. evolve() takes the Clifford shortcut of an
+// angle only if the factor it drops (sin theta at 0 and pi, cos theta at
+// +-pi/2) is below epsilon, so no term larger than epsilon is lost. (A test
+// on the kept factor, |cos theta - 1| <= 1e-14, accepted |theta| up to
+// 1.4e-7 and dropped terms of that size.)
+inline bool isCloseZero(double value, double epsilon = 1e-14) {
+    return std::abs(value) <= epsilon;
 }
 
 // Single-qubit rotations in the Heisenberg picture: apply_RZ(c, theta) maps
 // every term Q to U^dagger Q U for U = RZ(theta) = exp(-i theta/2 Z_c), i.e.
-// Q -> cos(theta) Q + i sin(theta) Z_c Q for Q anticommuting with Z_c; the
-// same as evolve() with generator Z_c and angle theta. Likewise RX and RY.
+// Q -> cos(theta) Q + i sin(theta) Z_c Q for Q anticommuting with Z_c. They
+// are evolve() with the one-term rotation (Z_c, theta), so they share its
+// kernel (threads, reproducibility, Clifford shortcuts). Likewise RX and RY.
+namespace detail {
+template <std::size_t N, typename T>
+void apply_single_rotation(PauliSum<N, T>& s, size_t c, bool x, bool z, real_t<T> angle) {
+    if (c >= N) throw std::out_of_range("apply_R*: qubit index exceeds the capacity N");
+    PauliString<N> p;
+    const size_t w = c / PauliString<N>::BitsPerWord;
+    const size_t bit = size_t{1} << (c % PauliString<N>::BitsPerWord);
+    if (x) p.x[w] |= bit;
+    if (z) p.z[w] |= bit;
+    PauliSum<N, T> rot;
+    rot.push_back(p, T{angle});
+    s.evolve(rot);
+}
+}  // namespace detail
+
 template <std::size_t N, typename T>
 void PauliSum<N, T>::apply_RZ(size_t c, real_t<T> angle) {
-    const real_t<T> cos_t = std::cos(angle);
-    const real_t<T> sin_t = std::sin(angle);
-    const size_t n = get_length();
-
-    PauliSum<N, T> new_;
-
-    for (size_t i = 0; i < n; ++i) {
-        if (commute_with_Z(i, c)) continue;
-
-        const T t_val = value[i] * sin_t;
-        value[i] *= cos_t;
-
-        for (size_t k = 0; k < ArraySize; ++k) {
-            new_.x_data[k].push_back(x_data[k][i]);
-            new_.z_data[k].push_back(z_data[k][i]);
-        }
-        new_.flags.push_back(flags[i]);
-        new_.value.push_back(t_val);
-
-        new_.multiply_iZ(new_.get_length() - 1, c);
-    }
-    *this += new_;
+    detail::apply_single_rotation(*this, c, false, true, angle);
 }
 
 template <std::size_t N, typename T>
 void PauliSum<N, T>::apply_RX(size_t c, real_t<T> angle) {
-    const real_t<T> cos_t = std::cos(angle);
-    const real_t<T> sin_t = std::sin(angle);
-    const size_t n = get_length();
-
-    PauliSum<N, T> new_;
-
-    for (size_t i = 0; i < n; ++i) {
-        if (commute_with_X(i, c)) continue;
-
-        const T t_val = value[i] * sin_t;
-        value[i] *= cos_t;
-
-        for (size_t k = 0; k < ArraySize; ++k) {
-            new_.x_data[k].push_back(x_data[k][i]);
-            new_.z_data[k].push_back(z_data[k][i]);
-        }
-        new_.flags.push_back(flags[i]);
-        new_.value.push_back(t_val);
-
-        new_.multiply_iX(new_.get_length() - 1, c);
-    }
-    *this += new_;
+    detail::apply_single_rotation(*this, c, true, false, angle);
 }
 
 template <std::size_t N, typename T>
 void PauliSum<N, T>::apply_RY(size_t c, real_t<T> angle) {
-    const real_t<T> cos_t = std::cos(angle);
-    const real_t<T> sin_t = std::sin(angle);
-    const size_t n = get_length();
-
-    PauliSum<N, T> new_;
-
-    for (size_t i = 0; i < n; ++i) {
-        if (commute_with_Y(i, c)) continue;
-
-        const T t_val = value[i] * sin_t;
-        value[i] *= cos_t;
-
-        for (size_t k = 0; k < ArraySize; ++k) {
-            new_.x_data[k].push_back(x_data[k][i]);
-            new_.z_data[k].push_back(z_data[k][i]);
-        }
-        new_.flags.push_back(flags[i]);
-        new_.value.push_back(t_val);
-
-        new_.multiply_iY(new_.get_length() - 1, c);
-    }
-    *this += new_;
+    detail::apply_single_rotation(*this, c, true, true, angle);
 }
 
 // Each rotation (P, theta) maps a term Q that anticommutes with P to
@@ -143,22 +96,22 @@ void PauliSum<N, T>::evolve(const PauliSum<N, T>& rotations) {
         const real_t<T> cos_theta = std::cos(theta);
         const real_t<T> sin_theta = std::sin(theta);
 
-        if (isCloseOne(cos_theta)) {
+        if (isCloseZero(sin_theta) && cos_theta > 0) {
             // θ ≈ 0: identity, nothing to do.
             continue;
-        } else if (isCloseOne(-cos_theta)) {
+        } else if (isCloseZero(sin_theta)) {
             // θ ≈ π: Q → -Q  (sin(π)=0, new term vanishes).
             transform_terms(*this, [&ps](const TermRef<N, T>& t) {
                 if (anticommutes(t, ps)) t.flip_sign();
             }, pol);
-        } else if (isCloseOne(sin_theta)) {
+        } else if (isCloseZero(cos_theta) && sin_theta > 0) {
             // θ ≈ π/2: Q → i·P·Q = -(Q·ps)  since ps=iP and {P,Q}=0.
             transform_terms(*this, [&ps](const TermRef<N, T>& t) {
                 if (!anticommutes(t, ps)) return;
                 t.flip_sign();
                 t.multiply(ps);
             }, pol);
-        } else if (isCloseOne(-sin_theta)) {
+        } else if (isCloseZero(cos_theta)) {
             // θ ≈ -π/2: Q → -i·P·Q = +(Q·ps).
             transform_terms(*this, [&ps](const TermRef<N, T>& t) {
                 if (anticommutes(t, ps)) t.multiply(ps);
@@ -383,14 +336,12 @@ PauliSum<N, T> i_commutator(const PauliSum<N, T>& a, const PauliSum<N, T>& b) {
 
 namespace detail {
 
-// The order of sort_and_combine: X words, then Z words, then the flags.
+// The order of sort_and_combine: the string order of compare_strings (X
+// words, then Z words; also used by merge_reduce), then the flags.
 template <std::size_t N, typename T>
-inline bool term_less(const PauliSum<N, T>& s, size_t a, size_t b) {
-    for (size_t k = 0; k < PauliSum<N, T>::ArraySize; ++k)
-        if (s.x_data[k][a] != s.x_data[k][b]) return s.x_data[k][a] < s.x_data[k][b];
-    for (size_t k = 0; k < PauliSum<N, T>::ArraySize; ++k)
-        if (s.z_data[k][a] != s.z_data[k][b]) return s.z_data[k][a] < s.z_data[k][b];
-    return s.flags[a] < s.flags[b];
+inline bool term_less(const SumView<N, T>& v, size_t a, size_t b) {
+    const int c = compare_strings(TermView<N, T>{&v, a}, TermView<N, T>{&v, b});
+    return c != 0 ? c < 0 : v.flags[a] < v.flags[b];
 }
 
 template <std::size_t N, typename T>
@@ -410,7 +361,8 @@ inline constexpr size_t kCollateParallelThreshold = size_t{1} << 14;
 template <std::size_t N, typename T>
 void stable_order(const PauliSum<N, T>& s, size_t lo, size_t hi, std::vector<size_t>& idx) {
     std::iota(idx.begin() + lo, idx.begin() + hi, lo);
-    auto less = [&s](size_t a, size_t b) { return term_less(s, a, b); };
+    const SumView<N, T> v(s);
+    auto less = [&v](size_t a, size_t b) { return term_less(v, a, b); };
     bool sorted = true;
     for (size_t i = lo + 1; i < hi && sorted; ++i) sorted = !less(i, i - 1);
     if (sorted) return;
@@ -510,8 +462,9 @@ void PauliSum<N, T>::sort_and_combine() {
 
 template <std::size_t N, typename T>
 bool PauliSum<N, T>::is_sorted() const {
+    const SumView<N, T> v(*this);
     for (size_t i = 1; i < get_length(); ++i)
-        if (detail::term_less(*this, i, i - 1)) return false;
+        if (detail::term_less(v, i, i - 1)) return false;
     return true;
 }
 
@@ -536,7 +489,8 @@ void PauliSum<N, T>::add_combine(const PauliSum<N, T>& rhs, T c) {
     std::vector<size_t> idx(n);
     detail::stable_order(*this, 0, m, idx);
     detail::stable_order(*this, m, n, idx);
-    auto less = [this](size_t a, size_t b) { return detail::term_less(*this, a, b); };
+    const SumView<N, T> v(*this);
+    auto less = [&v](size_t a, size_t b) { return detail::term_less(v, a, b); };
     if (m > 0 && m < n && less(idx[m], idx[m - 1])) {
         std::vector<size_t> merged(n);
         std::merge(idx.begin(), idx.begin() + m, idx.begin() + m, idx.end(), merged.begin(), less);

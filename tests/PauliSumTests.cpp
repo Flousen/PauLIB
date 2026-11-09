@@ -221,14 +221,17 @@ TEST(PauliSumApplyRZ, IdentityTermUnchanged) {
 }
 
 // X anti-commutes with Z_c → splits into cos*X + sin*(iZ*X) = cos*X - sin*Y,
-// with the standard gate angle: U† X U for U = RZ(theta) = exp(-i theta/2 Z)
+// with the standard gate angle: U† X U for U = RZ(theta) = exp(-i theta/2 Z).
+// apply_R* is evolve() with a one-term rotation, so where the sign of a new
+// term sits (coefficient or flags) is evolve's choice; the tests below
+// compare the operator (lookup, or get_str after canonicalize()).
 TEST(PauliSumApplyRZ, AntiCommutingXSplitsIntoTwo) {
     const double angle = M_PI / 3.0;
     PauliSum<1, double> s(std::vector<std::pair<std::string, double>>{{"X", 1.0}});
     s.apply_RZ(0, angle);
     ASSERT_EQ(s.get_length(), 2u);
-    EXPECT_DOUBLE_EQ(s.value[0], std::cos(angle));
-    EXPECT_DOUBLE_EQ(s.value[1], std::sin(angle));
+    EXPECT_DOUBLE_EQ(s.lookup("X"), std::cos(angle));
+    EXPECT_DOUBLE_EQ(s.lookup("Y"), -std::sin(angle));
 }
 
 // Resulting Paulis: RZ splits X into cos*X + sin*(iZ*X) = cos*X - sin*Y
@@ -236,9 +239,10 @@ TEST(PauliSumApplyRZ, ResultPaulis) {
     const double angle = M_PI / 3.0;
     PauliSum<1, double> s(std::vector<std::pair<std::string, double>>{{"X", 1.0}});
     s.apply_RZ(0, angle);
+    s.canonicalize();
     EXPECT_EQ(s.get_str(),
         "0.500000 * X\n"
-        "0.866025 * -Y\n");
+        "-0.866025 * Y\n");
 }
 
 // Regression: apply_RZ previously indexed the scratch sum with the outer loop
@@ -249,10 +253,11 @@ TEST(PauliSumApplyRZ, MixedCommutingAndAntiCommuting) {
     PauliSum<1, double> s(std::vector<std::pair<std::string, double>>{
         {"Z", 2.0}, {"X", 1.0}});
     s.apply_RZ(0, angle);
+    s.canonicalize();
     EXPECT_EQ(s.get_str(),
         "2.000000 * Z\n"
         "0.500000 * X\n"
-        "0.866025 * -Y\n");
+        "-0.866025 * Y\n");
 }
 
 // RX splits Z into cos*Z + sin*(iX*Z) = cos*Z + sin*Y
@@ -260,6 +265,7 @@ TEST(PauliSumApplyRX, ResultPaulis) {
     const double angle = M_PI / 3.0;
     PauliSum<1, double> s(std::vector<std::pair<std::string, double>>{{"Z", 1.0}});
     s.apply_RX(0, angle);
+    s.canonicalize();
     EXPECT_EQ(s.get_str(),
         "0.500000 * Z\n"
         "0.866025 * Y\n");
@@ -271,12 +277,14 @@ TEST(PauliSumApplyRY, ResultPaulis) {
     const double angle = M_PI / 3.0;
     PauliSum<1, double> s(std::vector<std::pair<std::string, double>>{{"Z", 1.0}});
     s.apply_RY(0, angle);
+    s.canonicalize();
     EXPECT_EQ(s.get_str(),
         "0.500000 * Z\n"
-        "0.866025 * -X\n");
+        "-0.866025 * X\n");
 
     PauliSum<1, double> t(std::vector<std::pair<std::string, double>>{{"X", 1.0}});
     t.apply_RY(0, angle);
+    t.canonicalize();
     EXPECT_EQ(t.get_str(),
         "0.866025 * Z\n"
         "0.500000 * X\n");
@@ -984,6 +992,22 @@ TEST(PauliSumEvolve, CommutingObservableUnchanged) {
     EXPECT_EQ(s.get_str(), "2.000000 * Z\n");
 }
 
+// Regression: the Clifford shortcuts tested cos/sin against +-1 with 1e-14,
+// which accepted angles up to ~1.4e-7 away from 0 or +-pi/2 and dropped terms
+// of that size. Only a dropped factor below 1e-14 may take a shortcut.
+TEST(PauliSumEvolve, NearCliffordAnglesKeepSmallTerms) {
+    for (double delta : {1e-7, -1e-7, 1e-10}) {
+        for (double base : {0.0, M_PI / 2, -M_PI / 2, M_PI}) {
+            const double theta = base + delta;
+            PauliSum<1, double> s(std::vector<std::pair<std::string, double>>{{"X", 1.0}});
+            s.evolve(PauliSum<1, double>(std::vector<std::pair<std::string, double>>{{"Z", theta}}));
+            // U† X U = cos(theta) X - sin(theta) Y for U = exp(-i theta/2 Z).
+            EXPECT_NEAR(s.lookup("X"), std::cos(theta), 1e-15) << "theta " << theta;
+            EXPECT_NEAR(s.lookup("Y"), -std::sin(theta), 1e-15) << "theta " << theta;
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // greedy_group
 // ---------------------------------------------------------------------------
@@ -1100,6 +1124,42 @@ TEST(PauliSumTraceProduct, QubitMismatchThrows) {
     PauliSum<4, double> a(3, "XYZ", 1.0);
     PauliSum<4, double> b(4, "XYZI", 1.0);
     EXPECT_THROW(trace_product(a, b), std::invalid_argument);
+}
+
+// Regression: trace() multiplied by 2^n, which is inf for n = 1024; ldexp
+// scales the sum instead (traceless -> 0, not NaN; 0.25 * I -> 2^1022).
+TEST(PauliSumTrace, ThousandQubitsDoesNotOverflow) {
+    const std::string id(1024, 'I');
+    std::string x = id;
+    x.back() = 'X';
+    PauliSum<1024, double> traceless(1024, x, 1.0);
+    EXPECT_EQ(traceless.trace(), 0.0);
+    PauliSum<1024, double> quarter(1024, id, 0.25);
+    EXPECT_EQ(quarter.trace(), std::ldexp(1.0, 1022));
+    EXPECT_EQ(trace_product(quarter, quarter), std::ldexp(1.0, 1020));
+    // Unsorted operands take the hash-table path.
+    PauliSum<1024, double> mixed = quarter;
+    mixed.push_back(PauliString<1024>(x), 1.0);
+    mixed.push_back(PauliString<1024>(id), 0.25);
+    ASSERT_FALSE(mixed.is_sorted());
+    EXPECT_EQ(trace_product(mixed, quarter), std::ldexp(1.0, 1021));
+}
+
+// Bits beyond num_qubits() (accepted by the constructor) are treated as |0>
+// by the expectations and extend the weight histogram.
+TEST(PauliSumBeyondQubitCount, ExpectationsAndHistogram) {
+    PauliSum<64, double> s(2, "IIIZ", 1.0);
+    ASSERT_EQ(s.num_qubits(), 2u);
+    const std::vector<std::array<double, 3>> zero(2, {0.0, 0.0, 1.0});
+    EXPECT_EQ(s.product_state_expectation(zero), 1.0);
+    EXPECT_EQ(s.zero_state_expectation(), 1.0);
+    PauliSum<64, double> x(2, "IIIX", 1.0);
+    EXPECT_EQ(x.product_state_expectation(zero), 0.0);
+
+    PauliSum<64, double> w(2, "XXXX", 2.0);
+    EXPECT_EQ(w.weight_histogram(), (std::vector<double>{0, 0, 0, 0, 4}));
+    PauliSum<64, double> v(2, "XX", 2.0);
+    EXPECT_EQ(v.weight_histogram(), (std::vector<double>{0, 0, 4}));
 }
 
 

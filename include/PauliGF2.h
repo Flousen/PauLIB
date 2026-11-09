@@ -88,13 +88,6 @@ inline void xor_string(PauliString<N>& p, const PauliString<N>& q) {
     }
 }
 
-template <std::size_t N>
-inline bool is_identity_string(const PauliString<N>& p) {
-    for (std::size_t k = 0; k < PauliString<N>::ArraySize; ++k)
-        if (p.x[k] | p.z[k]) return false;
-    return true;
-}
-
 // Rows above which the elimination of one pivot column uses threads.
 inline constexpr std::size_t kGF2ParallelWords = std::size_t{1} << 16;
 inline constexpr std::size_t kGF2Chunk = 4096;
@@ -232,7 +225,7 @@ public:
             detail::xor_string(v, rows_[b]);
             for (std::size_t k = 0; k < cw_; ++k) combo[k] ^= combos_[b][k];
         }
-        return detail::is_identity_string(v);
+        return is_identity(v);
     }
 
     // Inserts input string `index` (< max_inputs). Returns false, and leaves

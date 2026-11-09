@@ -108,6 +108,20 @@ template <std::size_t N, typename T> struct words_of<TermView<N, T>> {
 template <std::size_t N, typename T> struct words_of<TermRef<N, T>> {
     static constexpr std::size_t value = TermRef<N, T>::W;
 };
+
+// Order of the strings (X words, then Z words), the primary key of
+// sort_and_combine (term_less) and the order merge_reduce walks: negative,
+// zero or positive. The one definition of the collation order.
+template <typename A, typename B>
+inline int compare_strings(const A& a, const B& b) {
+    constexpr std::size_t W = words_of<A>::value;
+    static_assert(W == words_of<B>::value, "compare_strings: different capacities");
+    for (std::size_t k = 0; k < W; ++k)
+        if (xw(a, k) != xw(b, k)) return xw(a, k) < xw(b, k) ? -1 : 1;
+    for (std::size_t k = 0; k < W; ++k)
+        if (zw(a, k) != zw(b, k)) return zw(a, k) < zw(b, k) ? -1 : 1;
+    return 0;
+}
 }  // namespace detail
 
 // Symplectic product: true if a and b anticommute. a and b are PauliStrings

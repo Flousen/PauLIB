@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <complex>
 #include <cstdint>
 #include <numeric>
 #include <random>
@@ -211,12 +212,23 @@ T PauliSum<N, T>::basis_state_expectation(const std::string& bits) const {
 // imaginary phase flag are skipped (their contribution would be imaginary);
 // the sign flag (for complex T, the whole phase) is folded into the
 // coefficient.
+namespace detail {
+// v * 2^n by ldexp, which scales v instead of multiplying by 2^n: 2^1024
+// overflows a double, while a trace of up to ~1.8e308 does not.
+template <typename T>
+inline T scale_pow2(T v, size_t n) {
+    const int e = static_cast<int>(n);
+    if constexpr (is_complex_v<T>) return T{std::ldexp(v.real(), e), std::ldexp(v.imag(), e)};
+    else return std::ldexp(v, e);
+}
+}  // namespace detail
+
 template <std::size_t N, typename T>
 T PauliSum<N, T>::trace() const {
     const T result = reduce_terms<T>(*this, [](const TermView<N, T>& t) {
         return (is_identity(t) && contributes(t)) ? weighted_value(t) : T{};
     });
-    return result * std::ldexp(real_t<T>{1}, static_cast<int>(num_qubits_));
+    return detail::scale_pow2(result, num_qubits_);
 }
 
 // Coefficient c of ps in the sum, i.e. the c with sum = c * ps + (other
@@ -389,12 +401,25 @@ real_t<T> PauliSum<N, T>::l1_norm() const {
 // the weight distribution of operator spreading. Sums to frobenius_norm2().
 // Reproducible for every thread count (reduce_terms_binned). A term acting on
 // qubits beyond num_qubits() (possible only if the caller set bits there)
-// extends the histogram as far as needed, up to the capacity N.
+// extends the histogram as far as needed, up to the capacity N. The bins are
+// sized by num_qubits() plus one overflow bin; only if that bin is nonzero is
+// the histogram computed again with all N + 1 bins.
 template <std::size_t N, typename T>
 std::vector<real_t<T>> PauliSum<N, T>::weight_histogram() const {
-    auto h = reduce_terms_binned<real_t<T>>(
-        *this, N + 1, [](const TermView<N, T>& t) { return weight(t); },
-        [](const TermView<N, T>& t) { return abs2(t.value()); });
+    const auto mass = [](const TermView<N, T>& t) { return abs2(t.value()); };
+    const size_t over = num_qubits_ + 1;  // overflow bin
+    std::vector<real_t<T>> h;
+    if (over <= N) {
+        h = reduce_terms_binned<real_t<T>>(
+            *this, over + 1,
+            [over](const TermView<N, T>& t) { return std::min(weight(t), over); }, mass);
+        if (h[over] == real_t<T>{}) {
+            h.resize(over);
+            return h;
+        }
+    }
+    h = reduce_terms_binned<real_t<T>>(
+        *this, N + 1, [](const TermView<N, T>& t) { return weight(t); }, mass);
     size_t len = num_qubits_ + 1;
     for (size_t w = len; w < h.size(); ++w)
         if (h[w] != real_t<T>{}) len = w + 1;
@@ -407,6 +432,7 @@ std::vector<real_t<T>> PauliSum<N, T>::weight_histogram() const {
 // a i^k prod_q r_q(P_q), with r_q(I) = 1. bloch.size() must equal
 // num_qubits(). As in zero_state_expectation(), a real T skips terms with an
 // imaginary phase. The zero state is bloch[q] = (0, 0, 1) for every q.
+// Reproducible for every thread count (reduce_terms).
 template <std::size_t N, typename T>
 T PauliSum<N, T>::product_state_expectation(
         const std::vector<std::array<real_t<T>, 3>>& bloch) const {
@@ -415,31 +441,57 @@ T PauliSum<N, T>::product_state_expectation(
             "product_state_expectation: " + std::to_string(bloch.size()) +
             " Bloch vectors for " + std::to_string(num_qubits_) + " qubits");
 
-    T result = T{};
-    for (size_t i = 0; i < get_length(); ++i) {
-        if (!phase_representable<T>(flags[i])) continue;
-        real_t<T> prod = real_t<T>{1};
-        for (size_t k = 0; k < ArraySize && prod != real_t<T>{}; ++k) {
-            size_t support = x_data[k][i] | z_data[k][i];
+    // Qubits beyond num_qubits() (only if the caller set bits there) are in
+    // |0>, as in zero_state_expectation() and basis_state_expectation().
+    using R = real_t<T>;
+    std::vector<std::array<R, 3>> r(ArraySize * BitsPerWord, {R{0}, R{0}, R{1}});
+    std::copy(bloch.begin(), bloch.end(), r.begin());
+
+    return reduce_terms<T>(*this, [&r](const TermView<N, T>& t) {
+        if (!contributes(t)) return T{};
+        // local_pauli: 1 = X, 2 = Z, 3 = Y -> Bloch component 0, 2, 1.
+        constexpr std::array<unsigned, 4> component{0, 0, 2, 1};
+        R prod = R{1};
+        for (size_t k = 0; k < ArraySize && prod != R{}; ++k) {
+            size_t support = t.x(k) | t.z(k);
             while (support) {
                 const size_t b = static_cast<size_t>(std::countr_zero(support));
                 support &= support - 1;
-                const size_t q = k * BitsPerWord + b;
-                const bool xb = (x_data[k][i] >> b) & 1;
-                const bool zb = (z_data[k][i] >> b) & 1;
-                prod *= bloch[q][xb ? (zb ? 1 : 0) : 2];  // X, Y or Z
+                prod *= r[k * BitsPerWord + b][component[local_pauli(t, k, b)]];
             }
         }
-        result += phase_factor<T>(flags[i]) * value[i] * prod;
-    }
-    return result;
+        return weighted_value(t) * prod;
+    });
 }
+
+namespace detail {
+// Hash-table fallback of trace_product and inner_product for unsorted sums:
+// the weights w = c * i^k are accumulated per string of a (as complex numbers,
+// also for real T), and f(w_a, w_b) is summed over the terms of b in their
+// order. For real T the real part is returned.
+template <std::size_t N, typename T, typename F>
+T hash_pair_reduce(const PauliSum<N, T>& a, const PauliSum<N, T>& b, F&& f) {
+    using C = std::complex<real_t<T>>;
+    std::unordered_map<PauliString<N>, C, PauliStringXZHash<N>, PauliStringXZEqual<N>> weights;
+    for (size_t i = 0; i < a.get_length(); ++i)
+        weights[a.get_pauli_string(i)] += phase_factor<C>(a.flags[i]) * C(a.value[i]);
+
+    C result{};
+    for (size_t j = 0; j < b.get_length(); ++j) {
+        auto it = weights.find(b.get_pauli_string(j));
+        if (it == weights.end()) continue;
+        result += f(it->second, phase_factor<C>(b.flags[j]) * C(b.value[j]));
+    }
+    if constexpr (is_complex_v<T>) return result;
+    else return result.real();
+}
+}  // namespace detail
 
 // tr(A * B), the Hilbert-Schmidt pairing (no conjugation), computed
 // without forming the product: tr(P_a P_b) = 2^n only when the (x, z)
 // patterns match, contributing c_a c_b i^(k_a + k_b). O(len_A + len_B).
-// For real T, per pattern the complex weight w = c * i^k is accumulated as
-// (Re, Im) and only Re tr(A * B) is returned, 2^n * (Re_a Re_b - Im_a Im_b);
+// For real T, per pattern the complex weight w = c * i^k is accumulated
+// and only Re tr(A * B) is returned, 2^n * (Re_a Re_b - Im_a Im_b);
 // for Hermitian A and B the trace is real, so nothing is discarded. For
 // complex T the full trace is returned. If both sums are sorted
 // (is_sorted(), e.g. after canonicalize), the matching strings are found by
@@ -449,10 +501,8 @@ T trace_product(const PauliSum<N, T>& a, const PauliSum<N, T>& b) {
     if (a.num_qubits() != b.num_qubits())
         throw std::invalid_argument("trace_product: qubit-count mismatch");
 
-    const T scale = T{std::ldexp(real_t<T>{1}, static_cast<int>(a.num_qubits()))};
-
     if (a.is_sorted() && b.is_sorted()) {
-        return scale * merge_reduce<T>(a, b, [](const TermView<N, T>& ta, const TermView<N, T>& tb) {
+        const T r = merge_reduce<T>(a, b, [](const TermView<N, T>& ta, const TermView<N, T>& tb) {
             if constexpr (is_complex_v<T>) {
                 return weighted_value(ta) * weighted_value(tb);
             } else {
@@ -461,48 +511,12 @@ T trace_product(const PauliSum<N, T>& a, const PauliSum<N, T>& b) {
                 return (k & 1u) ? T{} : (k ? -ta.value() * tb.value() : ta.value() * tb.value());
             }
         });
+        return detail::scale_pow2(r, a.num_qubits());
     }
 
-    if constexpr (is_complex_v<T>) {
-        std::unordered_map<PauliString<N>, T,
-                           PauliStringXZHash<N>, PauliStringXZEqual<N>> weights;
-        for (size_t i = 0; i < a.get_length(); ++i)
-            weights[a.get_pauli_string(i)] += phase_factor<T>(a.flags[i]) * a.value[i];
-
-        T result = T{};
-        for (size_t j = 0; j < b.get_length(); ++j) {
-            auto it = weights.find(b.get_pauli_string(j));
-            if (it == weights.end()) continue;
-            result += it->second * phase_factor<T>(b.flags[j]) * b.value[j];
-        }
-        return result * scale;
-    } else {
-        std::unordered_map<PauliString<N>, std::pair<T, T>,
-                           PauliStringXZHash<N>, PauliStringXZEqual<N>> weights;
-        for (size_t i = 0; i < a.get_length(); ++i) {
-            auto& [re, im] = weights[a.get_pauli_string(i)];
-            switch (a.flags[i] & 0x03) {  // i^k: 0 -> +1, 1 -> +i, 2 -> -1, 3 -> -i
-                case 0: re += a.value[i]; break;
-                case 1: im += a.value[i]; break;
-                case 2: re -= a.value[i]; break;
-                case 3: im -= a.value[i]; break;
-            }
-        }
-
-        T result = T{};
-        for (size_t j = 0; j < b.get_length(); ++j) {
-            auto it = weights.find(b.get_pauli_string(j));
-            if (it == weights.end()) continue;
-            const auto& [re, im] = it->second;
-            switch (b.flags[j] & 0x03) {
-                case 0: result += re * b.value[j]; break;
-                case 1: result -= im * b.value[j]; break;
-                case 2: result -= re * b.value[j]; break;
-                case 3: result += im * b.value[j]; break;
-            }
-        }
-        return result * scale;
-    }
+    return detail::scale_pow2(
+        detail::hash_pair_reduce(a, b, [](const auto& wa, const auto& wb) { return wa * wb; }),
+        a.num_qubits());
 }
 
 // Inner product of two sums, <A, B> = tr(A† B) / 2^n (the normalized
@@ -531,39 +545,8 @@ T inner_product(const PauliSum<N, T>& a, const PauliSum<N, T>& b) {
         });
     }
 
-    if constexpr (is_complex_v<T>) {
-        std::unordered_map<PauliString<N>, T,
-                           PauliStringXZHash<N>, PauliStringXZEqual<N>> weights;
-        for (size_t i = 0; i < a.get_length(); ++i)
-            weights[a.get_pauli_string(i)] += phase_factor<T>(a.flags[i]) * a.value[i];
-
-        T result = T{};
-        for (size_t j = 0; j < b.get_length(); ++j) {
-            auto it = weights.find(b.get_pauli_string(j));
-            if (it == weights.end()) continue;
-            result += std::conj(it->second) * phase_factor<T>(b.flags[j]) * b.value[j];
-        }
-        return result;
-    } else {
-        // Re(conj(w_a) w_b) = Re_a Re_b + Im_a Im_b.
-        std::unordered_map<PauliString<N>, std::pair<T, T>,
-                           PauliStringXZHash<N>, PauliStringXZEqual<N>> weights;
-        for (size_t i = 0; i < a.get_length(); ++i) {
-            auto& [re, im] = weights[a.get_pauli_string(i)];
-            const T v = (a.flags[i] & 0x02) ? -a.value[i] : a.value[i];
-            if (a.flags[i] & 0x01) im += v; else re += v;
-        }
-
-        T result = T{};
-        for (size_t j = 0; j < b.get_length(); ++j) {
-            auto it = weights.find(b.get_pauli_string(j));
-            if (it == weights.end()) continue;
-            const auto& [re, im] = it->second;
-            const T v = (b.flags[j] & 0x02) ? -b.value[j] : b.value[j];
-            result += (b.flags[j] & 0x01) ? im * v : re * v;
-        }
-        return result;
-    }
+    return detail::hash_pair_reduce(
+        a, b, [](const auto& wa, const auto& wb) { return std::conj(wa) * wb; });
 }
 
 } // namespace paulib

@@ -272,22 +272,6 @@ PauliSum<N, T> for_each_pair(const PauliSum<N, T>& a, const PauliSum<N, T>& b, F
     return out;
 }
 
-namespace detail {
-
-// Order of the strings (X words, then Z words), the primary key of
-// sort_and_combine: negative, zero or positive.
-template <typename A, typename B>
-inline int compare_strings(const A& a, const B& b) {
-    constexpr std::size_t W = words_of<A>::value;
-    for (std::size_t k = 0; k < W; ++k)
-        if (xw(a, k) != xw(b, k)) return xw(a, k) < xw(b, k) ? -1 : 1;
-    for (std::size_t k = 0; k < W; ++k)
-        if (zw(a, k) != zw(b, k)) return zw(a, k) < zw(b, k) ? -1 : 1;
-    return 0;
-}
-
-}  // namespace detail
-
 // For two sums in the order of sort_and_combine (is_sorted()): the sum of
 // f(ta, tb) over all pairs of terms with the same string, whatever their
 // phases. O(|a| + |b|) instead of a hash table. The terms of a are split

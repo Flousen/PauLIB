@@ -389,10 +389,8 @@ namespace detail {
 
 template <std::size_t N>
 inline char pauli_at(const PauliString<N>& p, std::size_t q) {
-    const std::size_t w = q / PauliString<N>::BitsPerWord;
-    const std::size_t b = q % PauliString<N>::BitsPerWord;
-    const bool x = (p.x[w] >> b) & 1, z = (p.z[w] >> b) & 1;
-    return x ? (z ? 'Y' : 'X') : (z ? 'Z' : 'I');
+    constexpr std::size_t B = PauliString<N>::BitsPerWord;
+    return "IXZY"[local_pauli(p, q / B, q % B)];
 }
 
 // Appends gates on qubits j..n-1 that map the anticommuting pair (p, q),

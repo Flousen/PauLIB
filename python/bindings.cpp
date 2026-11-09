@@ -189,7 +189,8 @@ void register_pauli_sum(py::module_& m) {
         // Time evolution
         .def("evolve", [](PSS& s, const PSS& rot) { check_same_qubits(s, rot); s.evolve(rot); },
              py::arg("rotations"),
-             "Apply a sequence of Pauli rotations (evolve under exp(-i*theta*P)).")
+             "Apply a sequence of Pauli rotations: each term (P, theta) conjugates the sum "
+             "as U^dagger O U with U = exp(-i*theta/2*P), in order.")
         // Commutativity
         .def("commute", [](PSS& s, std::size_t i, const PS& ps) {
                 check_term(s, i); check_same_qubits(s, ps); return s.commute(i, ps);
